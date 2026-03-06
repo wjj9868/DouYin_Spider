@@ -9,9 +9,9 @@ import random
 
 import uuid
 
-import static.Request_pb2 as RequestProto
-from builder.header import HeaderBuilder
-from utils.dy_util import generate_webid, generate_req_sign, generate_millisecond
+import backend.core.static.Request_pb2 as RequestProto
+from backend.core.builder.header import HeaderBuilder
+from backend.core.utils.dy_util import generate_webid, generate_req_sign, generate_millisecond
 
 
 class ProtoBuilder:

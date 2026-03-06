@@ -1,6 +1,6 @@
 from enum import Enum
 
-from utils.dy_util import generate_ree_key, generate_bd_ticket_client_data, generate_csrf_token
+from backend.core.utils.dy_util import generate_ree_key, generate_bd_ticket_client_data, generate_csrf_token
 
 
 class HeaderType(Enum):
@@ -46,9 +46,7 @@ class Header:
 
 
 class HeaderBuilder:
-    # ua = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 '
-    #       'Safari/537.36 Edg/125.0.0.0')
-    ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/117.0"
+    ua = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36'
 
     @staticmethod
     def build(header_type):

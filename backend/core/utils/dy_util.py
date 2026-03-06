@@ -20,43 +20,42 @@ if getattr(sys, 'frozen', None):
 else:
     basedir = path.dirname(__file__)
 
-
 try:
-    node_modules = path.join(basedir, 'node_modules')
-    dy_path = path.join(basedir, 'static', 'dy_ab.js')
-    dy_js = execjs.compile(open(dy_path, 'r', encoding='utf-8').read(), cwd=node_modules)
-    sign_path = path.join(basedir, 'static', 'dy_live_sign.js')
-    sign_js = execjs.compile(open(sign_path, 'r', encoding='utf-8').read(), cwd=node_modules)
-except:
-    node_modules = path.join(basedir, '..', 'node_modules')
     dy_path = path.join(basedir, '..', 'static', 'dy_ab.js')
-    dy_js = execjs.compile(open(dy_path, 'r', encoding='utf-8').read(), cwd=node_modules)
+    dy_js = execjs.compile(open(dy_path, 'r', encoding='utf-8').read())
+    ab_path = path.join(basedir, '..', 'static', '20ab.js')
+    ab_js = execjs.compile(open(ab_path, 'r', encoding='utf-8').read())
     sign_path = path.join(basedir, '..', 'static', 'dy_live_sign.js')
-    sign_js = execjs.compile(open(sign_path, 'r', encoding='utf-8').read(), cwd=node_modules)
+    sign_js = execjs.compile(open(sign_path, 'r', encoding='utf-8').read())
+except:
+    dy_path = path.join(basedir, '..', '..', '..', 'static', 'dy_ab.js')
+    dy_js = execjs.compile(open(dy_path, 'r', encoding='utf-8').read())
+    ab_path = path.join(basedir, '..', '..', '..', 'static', '20ab.js')
+    ab_js = execjs.compile(open(ab_path, 'r', encoding='utf-8').read())
+    sign_path = path.join(basedir, '..', '..', '..', 'static', 'dy_live_sign.js')
+    sign_js = execjs.compile(open(sign_path, 'r', encoding='utf-8').read())
 
 
 def trans_cookies(cookies_str):
-    cookies = {
-        # "douyin.com": "",
-    }
+    cookies = {}
     for i in cookies_str.split("; "):
         try:
             cookies[i.split('=')[0]] = '='.join(i.split('=')[1:])
         except:
             continue
-    # cookies = {i.split('=')[0]: '='.join(i.split('=')[1:]) for i in cookies_str.split('; ')}
     return cookies
 
 
-# 私信传obj, 其他的拼接
 def generate_req_sign(e, priK):
     sign = dy_js.call('get_req_sign', e, priK)
     return sign
 
 
-# query, data都是拼接字符串
-def generate_a_bogus(query, data=""):
-    a_bogus = dy_js.call('get_ab', query, data)
+def generate_a_bogus(query, data="", user_agent=None):
+    if user_agent is None:
+        from backend.core.builder.header import HeaderBuilder
+        user_agent = HeaderBuilder.ua
+    a_bogus = ab_js.call('getABogus', query, data, user_agent)
     return a_bogus
 
 
@@ -64,13 +63,11 @@ def generate_signature(roomId, user_unique_id):
     return sign_js.call('sign', roomId, user_unique_id)
 
 
-# 传递私钥
 def generate_ree_key(prik):
     ree_key = dy_js.call('get_ree_key', prik)
     return ree_key
 
 
-# 传递query, ticket, ts_sign, priK
 def generate_bd_ticket_client_data(api, ticket, ts_sign, priK):
     timestamp = int(time.time())
     res_sign = f"ticket={ticket}&path={api}&timestamp={timestamp}"
@@ -123,7 +120,7 @@ def generate_webid(auth=None, url=""):
     if url == "":
         url = f"https://www.douyin.com/discover?modal_id=7376449060384935209"
     try:
-        from builder.header import HeaderBuilder, HeaderType
+        from backend.core.builder.header import HeaderBuilder, HeaderType
         headers = HeaderBuilder().build(HeaderType.DOC)
         headers.set_header('cookie', auth.cookie_str if auth else "")
         headers.set_header("upgrade-insecure-requests", "1")
@@ -133,21 +130,10 @@ def generate_webid(auth=None, url=""):
         webid = user_unique_id
         return webid
     except Exception as e:
-        # print("===================")
-        # print(url)
-        # print(e)
-        # print("===================")
         return generate_fake_webid()
 
 
 def ws_accept_key(ws_key):
-    """calc the Sec-WebSocket-Accept key by Sec-WebSocket-key
-    come from client, the return value used for handshake
-
-    :ws_key: Sec-WebSocket-Key come from client
-    :returns: Sec-WebSocket-Accept
-
-    """
     import hashlib
     import base64
     try:

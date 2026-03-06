@@ -5,12 +5,12 @@ from urllib.parse import urlencode
 
 from websocket import WebSocketApp
 
-import static.Live_pb2 as Live_pb2
-from dy_apis.douyin_api import DouyinAPI
-from builder.header import HeaderBuilder
-from builder.params import Params
-import utils.common_util as common_util
-from utils.dy_util import generate_signature
+import backend.core.static.Live_pb2 as Live_pb2
+from backend.core.dy_apis.douyin_api import DouyinAPI
+from backend.core.builder.header import HeaderBuilder
+from backend.core.builder.params import Params
+import backend.core.utils.common_util as common_util
+from backend.core.utils.dy_util import generate_signature
 
 
 class DouyinLive:

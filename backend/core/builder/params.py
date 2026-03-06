@@ -1,5 +1,5 @@
-from builder.header import HeaderBuilder
-from utils.dy_util import generate_webid, generate_msToken, splice_url, generate_a_bogus, generate_fake_webid
+from backend.core.builder.header import HeaderBuilder
+from backend.core.utils.dy_util import generate_webid, generate_msToken, splice_url, generate_a_bogus, generate_fake_webid
 
 
 class Params:
@@ -75,14 +75,10 @@ class Params:
                  'browser_name', 'browser_version', 'browser_online', 'engine_name', 'engine_version', 'os_name',
                  'os_version', 'cpu_core_num', 'device_memory', 'platform', 'downlink', 'effective_type',
                  'round_trip_time', 'webid', 'verifyFp', 'fp', 'msToken', 'a_bogus']
-        # 按照 order 排序的字段
         sorted_params = {key: self.params[key] for key in order if key in self.params}
-        # 不在 order 中的字段
         remaining_params = {key: self.params[key] for key in self.params if key not in order}
-        # 合并两个字典
         sorted_params.update(remaining_params)
         self.params = sorted_params
 
     def toString(self):
-        # 按url参数格式拼接参数
         return "&".join([f"{k}={v}" for k, v in self.params.items()])

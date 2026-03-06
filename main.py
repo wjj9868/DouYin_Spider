@@ -3,9 +3,9 @@ import json
 import os
 from loguru import logger
 
-from dy_apis.douyin_api import DouyinAPI
-from utils.common_util import init
-from utils.data_util import handle_work_info, download_work, save_to_xlsx
+from backend.core.dy_apis.douyin_api import DouyinAPI
+from backend.core.utils.common_util import init
+from backend.core.utils.data_util import handle_work_info, download_work, save_to_xlsx
 
 
 class Data_Spider():
@@ -125,18 +125,18 @@ if __name__ == '__main__':
 
 
     # 1 爬取列表的所有作品信息 作品链接 如下所示 注意此url会过期！
-    works = [
-        r'https://www.douyin.com/user/MS4wLjABAAAAv2Jr7Ngl7lQMjp4fw0AxtXkaHOgI_UL8aBJGGDSaU1g?from_tab_name=main&modal_id=7445533736877264178',
-    ]
-    data_spider.spider_some_work(auth, works, base_path, 'all', 'test')
+    # works = [
+    #     r'https://www.douyin.com/user/MS4wLjABAAAAv2Jr7Ngl7lQMjp4fw0AxtXkaHOgI_UL8aBJGGDSaU1g?from_tab_name=main&modal_id=7445533736877264178',
+    # ]
+    # data_spider.spider_some_work(auth, works, base_path, 'all', 'test')
 
     # 2 爬取用户的所有作品信息 用户链接 如下所示 注意此url会过期！
-    user_url = 'https://www.douyin.com/user/MS4wLjABAAAAULqT-SrJDT7RqeoxeGg1hB14Ia5UI9Pm66kzKmI1ITD2Fo3bUhqYePBaztkzj7U5?from_tab_name=main&relation=0&vid=7227654252435361061'
-    data_spider.spider_user_all_work(auth, user_url, base_path, 'all')
+    # user_url = 'https://www.douyin.com/user/MS4wLjABAAAAULqT-SrJDT7RqeoxeGg1hB14Ia5UI9Pm66kzKmI1ITD2Fo3bUhqYePBaztkzj7U5?from_tab_name=main&relation=0&vid=7227654252435361061'
+    # data_spider.spider_user_all_work(auth, user_url, base_path, 'all')
 
     # 3 搜索指定关键词的作品
     query = "榴莲"
-    require_num = 20  # 搜索的数量
+    require_num = 1 # 搜索的数量
     sort_type = '0'  # 排序方式 0 综合排序, 1 最多点赞, 2 最新发布
     publish_time = '0'  # 发布时间 0 不限, 1 一天内, 7 一周内, 180 半年内
     filter_duration = ""  # 视频时长 空字符串 不限, 0-1 一分钟内, 1-5 1-5分钟内, 5-10000 5分钟以上
@@ -144,4 +144,3 @@ if __name__ == '__main__':
     content_type = "0"  # 内容形式 0 不限, 1 视频, 2 图文
 
     data_spider.spider_some_search_work(auth, query, require_num, base_path, 'all', sort_type, publish_time, filter_duration, search_range, content_type)
-

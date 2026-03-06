@@ -1,8 +1,8 @@
 import base64
 import json
 
-from dy_apis.douyin_api import DouyinAPI
-from utils.dy_util import trans_cookies, generate_msToken
+from backend.core.dy_apis.douyin_api import DouyinAPI
+from backend.core.utils.dy_util import trans_cookies, generate_msToken
 
 
 class DouyinAuth:
@@ -32,7 +32,6 @@ class DouyinAuth:
             keys_ = json.loads(json.loads(keys_)['data'])
             self.private_key = keys_['ec_privateKey']
             self.ree_public_key = base64.b64encode(self.private_key.encode()).decode()
-
 
     def get_uid(self):
         if self.uid is None:
