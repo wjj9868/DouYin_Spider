@@ -175,6 +175,31 @@ class CollectorService:
         finally:
             db.close()
 
+    async def collect_user_by_url(self, task_id: int, sec_uid: str):
+        """通过主页URL采集用户信息"""
+        db = self._get_db()
+        try:
+            self._update_task_progress(task_id, 10, status="running")
+
+            user_data = self.douyin.get_user_info(sec_uid)
+            if not user_data:
+                self._update_task_progress(task_id, 100, status="failed")
+                logger.error(f"获取用户信息失败: {sec_uid}")
+                return
+
+            self._update_task_progress(task_id, 50)
+
+            user = self._save_user(db, user_data)
+
+            self._update_task_progress(task_id, 100, result_count=1, status="completed")
+            logger.info(f"采集用户信息完成: {user.nickname} (uid={user.uid})")
+
+        except Exception as e:
+            logger.error(f"采集用户信息失败: {e}")
+            self._update_task_progress(task_id, 100, status="failed")
+        finally:
+            db.close()
+
     async def collect_user_works(self, task_id: int, sec_uid: str,
                                   max_count: int = 100):
         """采集用户作品"""
@@ -223,16 +248,37 @@ class CollectorService:
             db.close()
 
     async def collect_search_works(self, task_id: int, keyword: str,
-                                    max_count: int = 50):
-        """搜索采集作品"""
+                                    max_count: int = 50, sort_type: str = "0",
+                                    publish_time: str = "0", filter_duration: str = "",
+                                    search_range: str = "0", content_type: str = "0"):
+        """搜索采集作品
+
+        Args:
+            task_id: 任务ID
+            keyword: 搜索关键词
+            max_count: 最大采集数量
+            sort_type: 排序方式 - 0综合排序, 1最多点赞, 2最新发布
+            publish_time: 发布时间 - 0不限, 1一天内, 7一周内, 180半年内
+            filter_duration: 视频时长 - 空不限, 0-1一分钟内, 1-5 1-5分钟, 5-10000 5分钟以上
+            search_range: 搜索范围 - 0不限, 1最近看过, 2还未看过, 3关注的人
+            content_type: 内容形式 - 0不限, 1视频, 2图文
+        """
         db = self._get_db()
         try:
+            logger.info(f"[采集任务] 开始搜索采集: task_id={task_id}, keyword='{keyword}', max_count={max_count}")
             self._update_task_progress(task_id, 5, status="running")
 
-            result = self.douyin.search_works(keyword, max_count)
+            result = self.douyin.search_works(
+                keyword, max_count, sort_type, publish_time,
+                filter_duration, search_range, content_type
+            )
             if not result:
+                logger.error(f"[采集任务] 搜索返回空结果: task_id={task_id}")
                 self._update_task_progress(task_id, 100, status="failed")
                 return
+
+            works_count = len(result.get("works", []))
+            logger.info(f"[采集任务] 搜索返回 {works_count} 条作品数据")
 
             collected = 0
             for work_data in result["works"]:
@@ -241,12 +287,23 @@ class CollectorService:
 
                 author = work_data.get("author", {})
                 if author.get("uid"):
-                    user = self._save_user(db, {
-                        "uid": author.get("uid"),
-                        "sec_uid": author.get("sec_uid"),
-                        "nickname": author.get("nickname"),
-                        "avatar": author.get("avatar"),
-                    })
+                    sec_uid = author.get("sec_uid")
+                    if sec_uid:
+                        existing_user = db.query(User).filter(User.sec_uid == sec_uid).first()
+                        if existing_user and existing_user.follower_count > 0:
+                            user = existing_user
+                        else:
+                            try:
+                                full_user = self.douyin.get_user_info(sec_uid)
+                                if full_user:
+                                    user = self._save_user(db, full_user)
+                                else:
+                                    user = self._save_user(db, author)
+                            except Exception as e:
+                                logger.warning(f"获取用户完整信息失败: {e}")
+                                user = self._save_user(db, author)
+                    else:
+                        user = self._save_user(db, author)
                     self._save_work(db, work_data, user.id)
                 else:
                     self._save_work(db, work_data)
@@ -345,9 +402,16 @@ class CollectorService:
                 await self.collect_user_works(
                     task_id, params.get("sec_uid"), params.get("max_count", 100)
                 )
+            elif task_type == "user_by_url":
+                await self.collect_user_by_url(
+                    task_id, params.get("sec_uid")
+                )
             elif task_type == "search":
                 await self.collect_search_works(
-                    task_id, params.get("keyword"), params.get("max_count", 50)
+                    task_id, params.get("keyword"), params.get("max_count", 50),
+                    params.get("sort_type", "0"), params.get("publish_time", "0"),
+                    params.get("filter_duration", ""), params.get("search_range", "0"),
+                    params.get("content_type", "0")
                 )
             elif task_type == "comment":
                 await self.collect_work_comments(

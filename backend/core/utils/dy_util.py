@@ -184,3 +184,16 @@ def splice_url(params):
             value = ''
         splice_url_str += key + '=' + urllib.parse.quote(str(value)) + '&'
     return splice_url_str[:-1]
+
+
+def generate_uifid():
+    import hashlib
+    random_bytes = ''.join(random.choices('0123456789abcdef', k=64))
+    return random_bytes
+
+
+def generate_search_id():
+    from datetime import datetime
+    timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+    random_part = ''.join(random.choices('0123456789ABCDEF', k=24))
+    return timestamp + random_part

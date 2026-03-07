@@ -7,6 +7,8 @@ const routes = [
   { path: '/search', component: () => import('@/views/Search.vue') },
   { path: '/live', component: () => import('@/views/Live.vue') },
   { path: '/tasks', component: () => import('@/views/Tasks.vue') },
+  { path: '/scheduled-tasks', component: () => import('@/views/ScheduledTasks.vue') },
+  { path: '/settings', component: () => import('@/views/Settings.vue') },
 ]
 
 const router = createRouter({

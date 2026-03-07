@@ -5,9 +5,18 @@ import time
 import urllib
 import uuid
 
+try:
+    from curl_cffi import requests as cffi_requests
+    USE_CURL_CFFI = True
+except ImportError:
+    import requests as cffi_requests
+    USE_CURL_CFFI = False
+    logger.warning("curl_cffi 未安装，搜索功能可能触发反爬验证，建议安装: pip install curl_cffi")
+
 import requests
 requests.packages.urllib3.disable_warnings()
 from bs4 import BeautifulSoup
+from loguru import logger
 
 import backend.core.static.Response_pb2 as ResponseProto
 from backend.core.builder.header import HeaderBuilder, HeaderType
@@ -386,7 +395,8 @@ class DouyinAPI:
 
     @staticmethod
     def search_general_work(auth, query: str, sort_type: str = '0', publish_time: str = '0', offset: str = '0',
-                            filter_duration="", search_range="", content_type="", **kwargs):
+                            filter_duration="", search_range="", content_type="", cursor: int = 0, 
+                            search_id: str = None, uifid: str = None, **kwargs):
         """
         搜索综合频道作品.
         :param auth: DouyinAuth object.
@@ -397,6 +407,9 @@ class DouyinAPI:
         :param filter_duration: 视频时长 空字符串 不限, 0-1 一分钟内, 1-5 1-5分钟内, 5-10000 5分钟以上
         :param search_range: 搜索范围 0 不限, 1 最近看过, 2 还未看过, 3 关注的人
         :param content_type: 内容形式 0 不限, 1 视频, 2 图文
+        :param cursor: 翻页游标，从上一次响应中获取
+        :param search_id: 搜索会话ID，翻页时必须保持一致
+        :param uifid: 设备指纹ID
         :return: JSON数据.
         """
         api = f"/aweme/v1/web/general/search/single/"
@@ -409,47 +422,88 @@ class DouyinAPI:
         params.add_param("channel", "channel_pc_web")
         params.add_param("search_channel", "aweme_general")
         params.add_param("enable_history", "1")
-        params.add_param("filter_selected", r'{"sort_type":"%s","publish_time":"%s","filter_duration":"%s",'
-                                            r'"search_range":"%s","content_type":"%s"}' % (sort_type, publish_time,
-                                                                                           filter_duration,
-                                                                                           search_range, content_type))
         params.add_param("keyword", query)
-        params.add_param("search_source", "tab_search")
+        params.add_param("search_source", "normal_search")
         params.add_param("query_correct_type", "1")
-        params.add_param("is_filter_search", "1")
+        params.add_param("is_filter_search", "0")
         params.add_param("from_group_id", "")
+        params.add_param("disable_rs", "0")
         params.add_param("offset", offset)
-        params.add_param("count", '25')
-        params.add_param("need_filter_settings", '1' if offset == '0' else '0')
+        params.add_param("count", "10")
+        params.add_param("need_filter_settings", "0")
         params.add_param("list_type", "single")
+        params.add_param("pc_search_top_1_params", '{"enable_ai_search_top_1":1}')
+        if search_id:
+            params.add_param("search_id", search_id)
         params.add_param("update_version_code", "170400")
         params.add_param("pc_client_type", "1")
+        params.add_param("pc_libra_divert", "Windows")
+        params.add_param("support_h265", "0")
+        params.add_param("support_dash", "0")
+        params.add_param("cpu_core_num", "12")
         params.add_param("version_code", "190600")
         params.add_param("version_name", "19.6.0")
         params.add_param("cookie_enabled", "true")
-        params.add_param("screen_width", "1707")
-        params.add_param("screen_height", "960")
+        params.add_param("screen_width", "1280")
+        params.add_param("screen_height", "720")
         params.add_param("browser_language", "zh-CN")
         params.add_param("browser_platform", "Win32")
-        params.add_param("browser_name", "Edge")
-        params.add_param("browser_version", "125.0.0.0")
+        params.add_param("browser_name", "Chrome")
+        params.add_param("browser_version", "145.0.0.0")
         params.add_param("browser_online", "true")
         params.add_param("engine_name", "Blink")
-        params.add_param("engine_version", "125.0.0.0")
+        params.add_param("engine_version", "145.0.0.0")
         params.add_param("os_name", "Windows")
         params.add_param("os_version", "10")
-        params.add_param("cpu_core_num", "32")
         params.add_param("device_memory", "8")
         params.add_param("platform", "PC")
-        params.add_param("downlink", "10")
+        params.add_param("downlink", "1.55")
         params.add_param("effective_type", "4g")
         params.add_param("round_trip_time", "50")
         params.with_web_id(auth, refer)
+        if uifid:
+            params.add_param("uifid", uifid)
         params.add_param("msToken", auth.msToken)
         params.with_a_bogus()
-        resp = requests.get(f'{DouyinAPI.douyin_url}{api}', headers=headers.get(), cookies=auth.cookie,
-                            params=params.get(), verify=False)
-        return json.loads(resp.text)
+        
+        url = f'{DouyinAPI.douyin_url}{api}'
+        headers_dict = headers.get()
+        params_dict = params.get()
+        
+        if USE_CURL_CFFI:
+            resp = cffi_requests.get(
+                url, 
+                headers=headers_dict, 
+                cookies=auth.cookie,
+                params=params_dict, 
+                verify=False,
+                impersonate="chrome120",
+                timeout=30
+            )
+        else:
+            resp = cffi_requests.get(
+                url, 
+                headers=headers_dict, 
+                cookies=auth.cookie,
+                params=params_dict, 
+                verify=False
+            )
+        
+        result = json.loads(resp.text)
+        
+        logger.debug(f"[API响应] offset={offset}, cursor={cursor}, HTTP状态码={resp.status_code}, 使用curl_cffi={USE_CURL_CFFI}")
+        logger.debug(f"[API响应] has_more={result.get('has_more')}, cursor={result.get('cursor')}, data数量={len(result.get('data', []))}")
+        
+        if cursor == 0:
+            logger.info(f"[API响应] 首次请求响应字段: {list(result.keys())}")
+        
+        if cursor > 0 and len(result.get('data', [])) == 0:
+            logger.warning(f"[翻页异常] cursor={cursor} 返回空数据")
+            search_nil_info = result.get('search_nil_info', {})
+            if search_nil_info.get('search_nil_type'):
+                logger.warning(f"[翻页异常] 触发验证: search_nil_type={search_nil_info.get('search_nil_type')}")
+        
+        return result
 
     @staticmethod
     def search_some_general_work(auth, query: str, num: int, sort_type: str, publish_time: str, filter_duration="", search_range="", content_type="", **kwargs) -> list:
@@ -465,18 +519,62 @@ class DouyinAPI:
         :param content_type: 内容形式 0 不限, 1 视频, 2 图文
         :return: 作品列表.
         """
+        from backend.core.utils.dy_util import generate_uifid, generate_search_id
+        
         offset = "0"
+        cursor = 0
         work_list = []
+        request_count = 0
+        max_retry = 3
+        retry_count = 0
+        
+        search_id = generate_search_id()
+        uifid = generate_uifid()
+        
+        logger.info(f"[搜索作品] 开始搜索关键词: '{query}', 目标数量: {num}")
+        logger.debug(f"[搜索作品] 生成 search_id={search_id}, uifid={uifid[:20]}...")
+        
         while True:
+            request_count += 1
             res_json = DouyinAPI.search_general_work(auth, query, sort_type, publish_time, offset,
-                                                     filter_duration, search_range, content_type)
-            works = res_json["data"]
+                                                     filter_duration, search_range, content_type, cursor,
+                                                     search_id=search_id, uifid=uifid)
+            works = res_json.get("data", [])
+            has_more = res_json.get("has_more", 0)
+            next_cursor = res_json.get("cursor", 0)
+            search_nil_info = res_json.get("search_nil_info", {})
+            
+            if res_json.get("search_id"):
+                search_id = res_json.get("search_id")
+            
+            logger.debug(f"[搜索作品] 第{request_count}次请求: offset={offset}, 返回{len(works)}条, has_more={has_more}")
+            
+            if len(works) == 0 and search_nil_info.get("search_nil_type") == "verify_check":
+                retry_count += 1
+                if retry_count <= max_retry:
+                    wait_time = random.uniform(3, 6)
+                    logger.warning(f"[搜索作品] 触发验证，第{retry_count}次重试，等待{wait_time:.1f}秒...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    logger.warning(f"[搜索作品] 已达最大重试次数({max_retry})，停止搜索")
+                    break
+            
+            retry_count = 0
             work_list.extend(works)
-            if res_json["has_more"] != 1 or len(work_list) >= num:
+            if has_more != 1 or len(work_list) >= num:
+                logger.info(f"[搜索作品] 停止翻页: has_more={has_more}, 已收集={len(work_list)}, 目标={num}")
                 break
-            offset = str(int(offset) + len(works))
+            
+            offset = str(len(work_list))
+            wait_time = random.uniform(2, 4)
+            logger.debug(f"[搜索作品] 等待{wait_time:.1f}秒后继续翻页...")
+            time.sleep(wait_time)
+        
         if len(work_list) > num:
             work_list = work_list[:num]
+        
+        logger.info(f"[搜索作品] 搜索完成: 关键词='{query}', 共请求{request_count}次, 最终结果={len(work_list)}条")
         return work_list
 
     @staticmethod
@@ -745,34 +843,192 @@ class DouyinAPI:
     def get_live_info(auth_, live_id, **kwargs):
         """
         获取直播间信息.
-        :param live_id: 直播间ID
+        :param live_id: 直播间ID (可以是web_rid或room_id)
         :return: 直播间ID, 用户ID, ttwid
         """
-        url = "https://live.douyin.com/" + live_id
+        from loguru import logger
+        import os
+        import json
+        
+        url = "https://live.douyin.com/" + str(live_id)
         headers = HeaderBuilder().build(HeaderType.GET)
         res = requests.get(url, headers=headers.get(), cookies=auth_.cookie, verify=False)
-        ttwid = res.cookies.get_dict()['ttwid']
+        
+        cookies_dict = res.cookies.get_dict()
+        ttwid = cookies_dict.get('ttwid', '')
+        
         soup = BeautifulSoup(res.text, 'html.parser')
         scripts = soup.select('script[nonce]')
+        
+        logger.info(f"获取直播间页面，状态码: {res.status_code}, script数量: {len(scripts)}")
+        
+        debug_dir = os.path.join(os.path.dirname(__file__), '..', '..', '..', 'data')
+        os.makedirs(debug_dir, exist_ok=True)
+        debug_file = os.path.join(debug_dir, 'live_page_debug.html')
+        with open(debug_file, 'w', encoding='utf-8') as f:
+            f.write(res.text)
+        logger.info(f"页面内容已保存到: {debug_file}")
+        
         for script in scripts:
-            if script.string is not None and 'roomId' in script.string:
-                try:
-                    room_id = re.findall(r'\\"roomId\\":\\"(\d+)\\"', script.string)[0]
-                    user_id = re.findall(r'\\"user_unique_id\\":\\"(\d+)\\"', script.string)[0]
-                    room_info = re.findall(r'\\"roomInfo\\":\{\\"room\\":\{\\"id_str\\":\\".*?\\",\\"status\\":(.*?),\\"status_str\\":\\".*?\\",\\"title\\":\\"(.*?)\\"', script.string)[0]
-                    room_status = room_info[0]
-                    room_title = room_info[1]
-                    return {
-                        "room_id": room_id,
-                        "user_id": user_id,
-                        "ttwid": ttwid,
-                        # 2 是直播中 4 是未开播
-                        "room_status": room_status,
-                        "room_title": room_title
-                    }
-                except Exception as e:
-                    pass
-        return None, None, None
+            if script.string is not None:
+                if 'room_id' in script.string or 'roomId' in script.string:
+                    logger.info(f"找到包含room_id的script，长度: {len(script.string)}")
+                    
+                    try:
+                        patterns = [
+                            (r'\\"roomId\\":\\"(\d+)\\"', 'roomId转义'),
+                            (r'"roomId":"(\d+)"', 'roomId普通'),
+                            (r'room_id[\'"]?\s*:\s*[\'"]?(\d+)', 'room_id普通'),
+                            (r'\\"room_id\\":\\"(\d+)\\"', 'room_id转义'),
+                        ]
+                        
+                        room_id = None
+                        for pattern, desc in patterns:
+                            match = re.findall(pattern, script.string)
+                            if match:
+                                room_id = match[0]
+                                logger.info(f"使用{desc}模式匹配到room_id: {room_id}")
+                                break
+                        
+                        if not room_id:
+                            continue
+                        
+                        user_patterns = [
+                            (r'\\"user_unique_id\\":\\"(\d+)\\"', 'user_unique_id转义'),
+                            (r'"user_unique_id":"(\d+)"', 'user_unique_id普通'),
+                            (r'user_unique_id[\'"]?\s*:\s*[\'"]?(\d+)', 'user_unique_id普通'),
+                        ]
+                        
+                        user_id = ""
+                        for pattern, desc in user_patterns:
+                            match = re.findall(pattern, script.string)
+                            if match:
+                                user_id = match[0]
+                                logger.info(f"使用{desc}模式匹配到user_id: {user_id}")
+                                break
+                        
+                        room_status = "2"
+                        room_title = ""
+                        
+                        status_patterns = [
+                            (r'\\"status\\":(\d+)', 'status转义'),
+                            (r'"status":(\d+)', 'status普通'),
+                        ]
+                        for pattern, desc in status_patterns:
+                            match = re.findall(pattern, script.string)
+                            if match:
+                                room_status = match[0]
+                                logger.info(f"使用{desc}模式匹配到status: {room_status}")
+                                break
+                        
+                        title_patterns = [
+                            (r'\\"title\\":\\"([^"\\]*)', 'title转义'),
+                            (r'"title":"([^"]*)"', 'title普通'),
+                        ]
+                        for pattern, desc in title_patterns:
+                            match = re.findall(pattern, script.string)
+                            if match:
+                                room_title = match[0][:100]
+                                logger.info(f"使用{desc}模式匹配到title: {room_title}")
+                                break
+                        
+                        logger.info(f"解析直播间成功: room_id={room_id}, user_id={user_id}, status={room_status}")
+                        
+                        return {
+                            "room_id": room_id,
+                            "user_id": user_id,
+                            "ttwid": ttwid,
+                            "room_status": room_status,
+                            "room_title": room_title
+                        }
+                    except Exception as e:
+                        logger.error(f"解析直播间信息异常: {e}")
+                        continue
+        
+        logger.info(f"页面解析失败，尝试通过API获取直播间信息...")
+        
+        try:
+            api_url = "https://live.douyin.com/webcast/room/web/enter/"
+            api_headers = HeaderBuilder().build(HeaderType.GET)
+            api_headers.set_referer(url)
+            
+            params = Params()
+            params.add_param("aid", "6383")
+            params.add_param("app_name", "douyin_web")
+            params.add_param("live_id", "1")
+            params.add_param("device_platform", "web")
+            params.add_param("language", "zh-CN")
+            params.add_param("enter_from", "web_live")
+            params.add_param("cookie_enabled", "true")
+            params.add_param("screen_width", "1920")
+            params.add_param("screen_height", "1080")
+            params.add_param("browser_language", "zh-CN")
+            params.add_param("browser_platform", "Win32")
+            params.add_param("browser_name", "Chrome")
+            params.add_param("browser_version", "125.0.0.0")
+            params.add_param("browser_online", "true")
+            params.add_param("tz_name", "Asia/Shanghai")
+            params.add_param("identity", "audience")
+            params.add_param("support_wrds", "1")
+            params.add_param("web_rid", str(live_id))
+            params.add_param("Room-Enter-User-Login-Ab", "0")
+            params.add_param("is_need_double_stream", "false")
+            params.add_param("support_source_code", "true")
+            params.add_param("msToken", auth_.msToken)
+            params.with_a_bogus()
+            
+            api_res = requests.get(
+                api_url,
+                headers=api_headers.get(),
+                cookies=auth_.cookie,
+                params=params.get(),
+                verify=False
+            )
+            
+            logger.info(f"API响应状态码: {api_res.status_code}")
+            
+            if api_res.status_code == 200 and api_res.text:
+                api_data = api_res.json()
+                logger.info(f"API返回: {json.dumps(api_data, ensure_ascii=False)[:500]}")
+                
+                if api_data.get("status_code") == 0:
+                    data = api_data.get("data", {})
+                    room_data = data.get("data", [{}])[0] if data.get("data") else {}
+                    
+                    if room_data:
+                        real_room_id = str(room_data.get("id_str") or room_data.get("id", ""))
+                        owner_user_id = str(room_data.get("owner_user_id", ""))
+                        room_status = str(room_data.get("status", 2))
+                        room_title = room_data.get("title", "")
+                        
+                        if real_room_id:
+                            logger.info(f"通过API获取直播间成功: room_id={real_room_id}, user_id={owner_user_id}")
+                            return {
+                                "room_id": real_room_id,
+                                "user_id": owner_user_id,
+                                "ttwid": ttwid,
+                                "room_status": room_status,
+                                "room_title": room_title
+                            }
+            else:
+                logger.warning(f"API响应异常: status_code={api_res.status_code}, text={api_res.text[:200] if api_res.text else 'empty'}")
+        except Exception as e:
+            logger.error(f"API获取直播间信息失败: {e}")
+        
+        try:
+            logger.info(f"尝试直接使用传入的ID作为room_id...")
+            return {
+                "room_id": str(live_id),
+                "user_id": "",
+                "ttwid": ttwid,
+                "room_status": "2",
+                "room_title": ""
+            }
+        except Exception as e:
+            logger.error(f"备用方案失败: {e}")
+        
+        logger.warning(f"未找到直播间信息，请检查debug文件: {debug_file}")
+        return None
 
     @staticmethod
     def get_live_production(auth, url: str, room_id: str, author_id: str, offset: str, **kwargs):

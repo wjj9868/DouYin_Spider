@@ -1,5 +1,5 @@
 from backend.core.builder.header import HeaderBuilder
-from backend.core.utils.dy_util import generate_webid, generate_msToken, splice_url, generate_a_bogus, generate_fake_webid
+from backend.core.utils.dy_util import generate_webid, generate_msToken, splice_url, generate_a_bogus, generate_fake_webid, generate_uifid, generate_search_id
 
 
 class Params:
@@ -44,6 +44,17 @@ class Params:
     def with_web_id(self, auth=None, url="", fake=False):
         webid = generate_fake_webid() if fake else generate_webid(auth, url)
         self.params['webid'] = webid
+        return self
+
+    def with_uifid(self):
+        uifid = generate_uifid()
+        self.params['uifid'] = uifid
+        return self
+
+    def with_search_id(self, search_id=None):
+        if search_id is None:
+            search_id = generate_search_id()
+        self.params['search_id'] = search_id
         return self
 
     def with_a_bogus(self, data=None):

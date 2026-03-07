@@ -44,17 +44,22 @@ class DouyinService:
 
     def _parse_user_info(self, user: dict) -> dict:
         """解析用户信息"""
+        sec_uid = user.get("sec_uid", "")
         return {
             "uid": user.get("uid", ""),
-            "sec_uid": user.get("sec_uid", ""),
+            "sec_uid": sec_uid,
+            "unique_id": user.get("unique_id", ""),
             "nickname": user.get("nickname", ""),
             "avatar": user.get("avatar_thumb", {}).get("url_list", [""])[0],
             "signature": user.get("signature", ""),
+            "gender": user.get("gender", 0),
+            "age": user.get("user_age"),
             "follower_count": user.get("follower_count", 0),
             "following_count": user.get("following_count", 0),
             "aweme_count": user.get("aweme_count", 0),
-            "favorited_count": user.get("total_favorited", 0),
+            "total_favorited": user.get("total_favorited", 0),
             "ip_location": user.get("ip_label", ""),
+            "user_url": f"https://www.douyin.com/user/{sec_uid}" if sec_uid else "",
         }
 
     def get_user_works(self, sec_uid: str, max_cursor: int = 0,
@@ -65,7 +70,7 @@ class DouyinService:
             return None
         try:
             user_url = f"https://www.douyin.com/user/{sec_uid}"
-            result = DouyinAPI.get_user_work(self.auth, user_url, max_cursor, count)
+            result = DouyinAPI.get_user_work_info(self.auth, user_url, str(max_cursor))
             if result:
                 return {
                     "works": [self._parse_work_info(w) for w in result.get("aweme_list", [])],
@@ -111,6 +116,9 @@ class DouyinService:
                 url_list = img.get("url_list", [])
                 if url_list:
                     images.append(url_list[0])
+            if images and not cover_url:
+                cover_url = images[0]
+            logger.debug(f"解析图集: 共{len(images)}张图片")
 
         topics = []
         if work.get("text_extra"):
@@ -120,6 +128,8 @@ class DouyinService:
 
         author = work.get("author", {})
         statistics = work.get("statistics", {})
+
+        logger.debug(f"作者信息: uid={author.get('uid')}, nickname={author.get('nickname')}, follower_count={author.get('follower_count')}")
 
         aweme_type = work.get("aweme_type", 0)
         work_type = "video"
@@ -222,27 +232,60 @@ class DouyinService:
             logger.error("未初始化认证信息")
             return None
         try:
+            logger.info(f"[搜索服务] 开始搜索: keyword='{keyword}', num={num}, sort_type={sort_type}, publish_time={publish_time}, filter_duration={filter_duration}, search_range={search_range}, content_type={content_type}")
+            
             work_list = DouyinAPI.search_some_general_work(
                 self.auth, keyword, num, sort_type, publish_time,
                 filter_duration, search_range, content_type
             )
+            
             if work_list:
+                logger.info(f"[搜索服务] API返回原始数据: {len(work_list)} 条")
+                
+                valid_count = sum(1 for w in work_list if w.get("aweme_info"))
+                logger.info(f"[搜索服务] 包含aweme_info的有效数据: {valid_count} 条")
+                
+                if work_list:
+                    first_item = work_list[0]
+                    logger.debug(f"[搜索服务] 第一条数据结构: aweme_info存在={bool(first_item.get('aweme_info'))}")
+                    if first_item.get("aweme_info"):
+                        aweme_info = first_item["aweme_info"]
+                        author = aweme_info.get("author", {})
+                        logger.debug(f"[搜索服务] 作者数据: uid={author.get('uid')}, nickname={author.get('nickname')}")
+                
+                parsed_works = [self._parse_work_info(w.get("aweme_info", {}))
+                             for w in work_list if w.get("aweme_info")]
+                logger.info(f"[搜索服务] 解析后作品数量: {len(parsed_works)} 条")
+                
                 return {
-                    "works": [self._parse_work_info(w.get("aweme_info", {}))
-                             for w in work_list if w.get("aweme_info")],
+                    "works": parsed_works,
                     "total": len(work_list),
                 }
+            else:
+                logger.warning(f"[搜索服务] API返回空数据: keyword='{keyword}'")
         except Exception as e:
-            logger.error(f"搜索作品失败: {e}")
+            logger.error(f"[搜索服务] 搜索作品失败: {e}")
         return None
 
-    def search_users(self, keyword: str, num: int = 20) -> Optional[dict]:
-        """搜索用户"""
+    def search_users(self, keyword: str, num: int = 20,
+                     douyin_user_fans: str = "", douyin_user_type: str = "") -> Optional[dict]:
+        """搜索用户
+
+        Args:
+            keyword: 搜索关键词
+            num: 搜索数量
+            douyin_user_fans: 粉丝数量筛选 - 空不限, 0_1k(1k以下), 1k_1w(1k-1w), 1w_10w(1w-10w), 10w_100w(10w-100w), 100w_(100w以上)
+            douyin_user_type: 用户类型筛选 - 空不限, common_user(普通用户), enterprise_user(企业用户), personal_user(个人认证用户)
+        """
         if not self.auth:
             logger.error("未初始化认证信息")
             return None
         try:
-            user_list = DouyinAPI.search_some_user(self.auth, keyword, num)
+            user_list = DouyinAPI.search_some_user(
+                self.auth, keyword, num,
+                douyin_user_fans=douyin_user_fans,
+                douyin_user_type=douyin_user_type
+            )
             if user_list:
                 return {
                     "users": [self._parse_search_user(u) for u in user_list],

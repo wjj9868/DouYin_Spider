@@ -32,5 +32,5 @@ def get_db():
 
 def init_db():
     """初始化数据库（创建所有表，如果不存在）"""
-    from backend.models import User, Work, Comment, Task, LiveRecord
+    from backend.models import User, Work, Comment, Task, LiveRecord, Cookie
     Base.metadata.create_all(bind=engine)
