@@ -186,7 +186,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { usersApi, followersApi } from '@/api'
+import { usersApi, followersApi, exportApi } from '@/api'
 
 const selectedUser = ref('')
 const userList = ref([])
