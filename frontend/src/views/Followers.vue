@@ -215,7 +215,7 @@ const currentList = computed(() => {
 const loadUserList = async () => {
   try {
     const res = await usersApi.list({ page_size: 100 })
-    if (res.code === 0) {
+    if (res.code === 200 || res.code === 0) {
       userList.value = res.data.items
     }
   } catch (error) {
@@ -258,7 +258,7 @@ const loadList = async () => {
       : followersApi.getFollowings(selectedUser.value, params)
 
     const res = await apiCall
-    if (res.code === 0) {
+    if (res.code === 200 || res.code === 0) {
       if (activeTab.value === 'followers') {
         followersList.value = res.data.items
         followersTotal.value = res.data.total
@@ -286,7 +286,7 @@ const handleCollect = async () => {
       : followersApi.collectFollowings(selectedUser.value)
 
     const res = await apiCall
-    if (res.code === 0) {
+    if (res.code === 200 || res.code === 0) {
       ElMessage.success('采集任务已创建')
     } else {
       ElMessage.error(res.message || '采集失败')

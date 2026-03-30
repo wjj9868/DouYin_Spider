@@ -291,6 +291,84 @@ async def get_work_comments(
     })
 
 
+@router.post("/{work_id}/collect-comments", summary="采集作品评论")
+async def collect_work_comments(
+    work_id: str,
+    max_count: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db)
+) -> ApiResponse[dict]:
+    """采集作品评论"""
+    from backend.models import Task
+    from backend.services.collector import get_collector
+    import json
+
+    work = db.query(Work).filter(Work.work_id == work_id).first()
+    if not work:
+        return ApiResponse(code=404, message="作品不存在")
+
+    task = Task(
+        task_type="comment",
+        task_params=json.dumps({"work_id": work_id, "max_count": max_count}),
+        status="pending"
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    collector = get_collector()
+    collector.start_task(task.id, "comment", {"work_id": work_id, "max_count": max_count})
+
+    return ApiResponse(data={"task_id": task.id}, message="评论采集任务已创建")
+
+
+@router.get("/{work_id}/comments/{comment_id}/replies", summary="获取评论回复")
+async def get_comment_replies(
+    work_id: str,
+    comment_id: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: Session = Depends(get_db)
+) -> ApiResponse[dict]:
+    """获取评论回复列表"""
+    from backend.models import Comment
+
+    work = db.query(Work).filter(Work.work_id == work_id).first()
+    if not work:
+        return ApiResponse(code=404, message="作品不存在")
+
+    parent_comment = db.query(Comment).filter(
+        Comment.comment_id == comment_id,
+        Comment.work_id == work.id
+    ).first()
+    if not parent_comment:
+        return ApiResponse(code=404, message="评论不存在")
+
+    query = db.query(Comment).filter(Comment.parent_id == parent_comment.id)
+    total = query.count()
+    offset = (page - 1) * page_size
+
+    replies = query.order_by(Comment.crawled_at.desc()).offset(offset).limit(page_size).all()
+
+    items = []
+    for r in replies:
+        items.append({
+            "id": r.id,
+            "comment_id": r.comment_id,
+            "content": r.content,
+            "digg_count": r.digg_count,
+            "create_time": r.create_time.isoformat() if r.create_time else None,
+            "user_nickname": r.user.nickname if r.user else None,
+            "user_avatar": r.user.avatar if r.user else None,
+        })
+
+    return ApiResponse(data={
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    })
+
+
 @router.get("/{work_id}/video", summary="获取视频/音频流")
 async def get_video_stream(work_id: str, db: Session = Depends(get_db)):
     """代理视频/音频流，解决403问题（图集的video_url是背景音乐）"""

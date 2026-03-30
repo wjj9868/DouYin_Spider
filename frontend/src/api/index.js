@@ -93,4 +93,17 @@ export const cookiesApi = {
   getActiveByType: (type) => request.get(`/cookies/active/${type}`)
 }
 
+export const followersApi = {
+  getFollowers: (secUid, params) => request.get(`/users/${secUid}/followers`, { params }),
+  getFollowings: (secUid, params) => request.get(`/users/${secUid}/followings`, { params }),
+  collectFollowers: (secUid) => request.post(`/users/${secUid}/collect-followers`),
+  collectFollowings: (secUid) => request.post(`/users/${secUid}/collect-followings`)
+}
+
+export const commentsApi = {
+  list: (workId, params) => request.get(`/works/${workId}/comments`, { params }),
+  getReplies: (workId, commentId, params) => request.get(`/works/${workId}/comments/${commentId}/replies`, { params }),
+  collect: (workId, maxCount) => request.post(`/works/${workId}/collect-comments`, null, { params: { max_count: maxCount } })
+}
+
 export default request

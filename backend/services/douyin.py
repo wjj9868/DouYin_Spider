@@ -94,8 +94,16 @@ class DouyinService:
             logger.error(f"获取作品详情失败: {e}")
         return None
 
-    def _parse_work_info(self, work: dict) -> dict:
+    def _parse_work_info(self, work: dict) -> Optional[dict]:
         """解析作品信息"""
+        if not work:
+            return None
+        
+        aweme_id = work.get("aweme_id", "")
+        if not aweme_id:
+            logger.warning("[解析作品] 缺少aweme_id，跳过")
+            return None
+        
         video_url = ""
         cover_url = ""
         if work.get("video"):
@@ -129,6 +137,10 @@ class DouyinService:
         author = work.get("author", {})
         statistics = work.get("statistics", {})
 
+        if not author.get("uid"):
+            logger.warning(f"[解析作品] 作品 {aweme_id} 缺少作者信息，跳过")
+            return None
+
         logger.debug(f"作者信息: uid={author.get('uid')}, nickname={author.get('nickname')}, follower_count={author.get('follower_count')}")
 
         aweme_type = work.get("aweme_type", 0)
@@ -146,8 +158,8 @@ class DouyinService:
             ip_location = work["user"].get("ip_location", "") or work["user"].get("ip_label", "")
 
         return {
-            "work_id": work.get("aweme_id", ""),
-            "work_url": f"https://www.douyin.com/video/{work.get('aweme_id', '')}",
+            "work_id": aweme_id,
+            "work_url": f"https://www.douyin.com/video/{aweme_id}",
             "work_type": work_type,
             "title": work.get("desc", ""),
             "description": work.get("desc", ""),
@@ -218,10 +230,10 @@ class DouyinService:
                      filter_duration: str = "", search_range: str = "",
                      content_type: str = "") -> Optional[dict]:
         """
-        搜索作品
+        搜索作品 - 保证返回指定数量的有效数据
         
         :param keyword: 搜索关键字
-        :param num: 搜索结果数量
+        :param num: 目标有效作品数量（保证采集到这么多条有效数据）
         :param sort_type: 排序方式 0 综合排序, 1 最多点赞, 2 最新发布
         :param publish_time: 发布时间 0 不限, 1 一天内, 7 一周内, 180 半年内
         :param filter_duration: 视频时长 空字符串 不限, 0-1 一分钟内, 1-5 1-5分钟内, 5-10000 5分钟以上
@@ -231,41 +243,122 @@ class DouyinService:
         if not self.auth:
             logger.error("未初始化认证信息")
             return None
-        try:
-            logger.info(f"[搜索服务] 开始搜索: keyword='{keyword}', num={num}, sort_type={sort_type}, publish_time={publish_time}, filter_duration={filter_duration}, search_range={search_range}, content_type={content_type}")
+        
+        from backend.core.dy_apis.douyin_api import DouyinAPI
+        from backend.core.utils.dy_util import generate_uifid, generate_search_id
+        import time
+        import random
+        
+        offset = "0"
+        cursor = 0
+        parsed_works = []
+        raw_work_list = []
+        request_count = 0
+        max_requests = 50
+        max_retry = 3
+        retry_count = 0
+        consecutive_empty = 0
+        max_consecutive_empty = 3
+        
+        search_id = generate_search_id()
+        uifid = generate_uifid()
+        
+        logger.info(f"[搜索服务] 开始搜索: keyword='{keyword}', 目标有效数量: {num}")
+        
+        while len(parsed_works) < num and request_count < max_requests:
+            request_count += 1
             
-            work_list = DouyinAPI.search_some_general_work(
-                self.auth, keyword, num, sort_type, publish_time,
-                filter_duration, search_range, content_type
-            )
+            try:
+                res_json = DouyinAPI.search_general_work(
+                    self.auth, keyword, sort_type, publish_time, offset,
+                    filter_duration, search_range, content_type, cursor,
+                    search_id=search_id, uifid=uifid
+                )
+            except Exception as e:
+                logger.error(f"[搜索服务] 第{request_count}次请求失败: {e}")
+                retry_count += 1
+                if retry_count <= max_retry:
+                    time.sleep(random.uniform(2, 4))
+                    continue
+                else:
+                    break
             
-            if work_list:
-                logger.info(f"[搜索服务] API返回原始数据: {len(work_list)} 条")
+            works = res_json.get("data", [])
+            has_more = res_json.get("has_more", 0)
+            search_nil_info = res_json.get("search_nil_info", {})
+            
+            if res_json.get("search_id"):
+                search_id = res_json.get("search_id")
+            
+            logger.debug(f"[搜索服务] 第{request_count}次请求: offset={offset}, 返回{len(works)}条原始数据")
+            
+            if len(works) == 0:
+                if search_nil_info.get("search_nil_type") == "verify_check":
+                    retry_count += 1
+                    if retry_count <= max_retry:
+                        wait_time = random.uniform(3, 6)
+                        logger.warning(f"[搜索服务] 触发验证，第{retry_count}次重试，等待{wait_time:.1f}秒...")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        logger.warning(f"[搜索服务] 已达最大重试次数({max_retry})，停止搜索")
+                        break
                 
-                valid_count = sum(1 for w in work_list if w.get("aweme_info"))
-                logger.info(f"[搜索服务] 包含aweme_info的有效数据: {valid_count} 条")
+                consecutive_empty += 1
+                if consecutive_empty >= max_consecutive_empty:
+                    logger.warning(f"[搜索服务] 连续{consecutive_empty}次返回空数据，停止搜索")
+                    break
                 
-                if work_list:
-                    first_item = work_list[0]
-                    logger.debug(f"[搜索服务] 第一条数据结构: aweme_info存在={bool(first_item.get('aweme_info'))}")
-                    if first_item.get("aweme_info"):
-                        aweme_info = first_item["aweme_info"]
-                        author = aweme_info.get("author", {})
-                        logger.debug(f"[搜索服务] 作者数据: uid={author.get('uid')}, nickname={author.get('nickname')}")
+                if has_more != 1:
+                    logger.info(f"[搜索服务] 无更多数据，停止搜索")
+                    break
                 
-                parsed_works = [self._parse_work_info(w.get("aweme_info", {}))
-                             for w in work_list if w.get("aweme_info")]
-                logger.info(f"[搜索服务] 解析后作品数量: {len(parsed_works)} 条")
-                
-                return {
-                    "works": parsed_works,
-                    "total": len(work_list),
-                }
-            else:
-                logger.warning(f"[搜索服务] API返回空数据: keyword='{keyword}'")
-        except Exception as e:
-            logger.error(f"[搜索服务] 搜索作品失败: {e}")
-        return None
+                cursor = res_json.get("cursor", cursor + 10)
+                offset = str(len(raw_work_list))
+                time.sleep(random.uniform(1, 2))
+                continue
+            
+            retry_count = 0
+            consecutive_empty = 0
+            raw_work_list.extend(works)
+            
+            valid_count_this_round = 0
+            for w in works:
+                aweme_info = w.get("aweme_info", {})
+                parsed = self._parse_work_info(aweme_info)
+                if parsed:
+                    parsed_works.append(parsed)
+                    valid_count_this_round += 1
+                else:
+                    logger.debug(f"[搜索服务] 跳过无效作品: aweme_id={aweme_info.get('aweme_id', 'unknown')}")
+            
+            logger.info(f"[搜索服务] 第{request_count}次请求: 原始{len(works)}条 -> 有效{valid_count_this_round}条, 累计有效{len(parsed_works)}条")
+            
+            if has_more != 1:
+                logger.info(f"[搜索服务] 无更多数据(has_more={has_more})，当前有效{len(parsed_works)}条")
+                break
+            
+            if len(parsed_works) >= num:
+                break
+            
+            cursor = res_json.get("cursor", cursor + 10)
+            offset = str(len(raw_work_list))
+            
+            wait_time = random.uniform(1.5, 3)
+            logger.debug(f"[搜索服务] 等待{wait_time:.1f}秒后继续翻页...")
+            time.sleep(wait_time)
+        
+        if len(parsed_works) > num:
+            parsed_works = parsed_works[:num]
+        
+        logger.info(f"[搜索服务] 搜索完成: 关键词='{keyword}', 共请求{request_count}次, 原始数据{len(raw_work_list)}条, 有效作品{len(parsed_works)}条")
+        
+        return {
+            "works": parsed_works,
+            "total": len(parsed_works),
+            "raw_total": len(raw_work_list),
+            "requests": request_count,
+        }
 
     def search_users(self, keyword: str, num: int = 20,
                      douyin_user_fans: str = "", douyin_user_type: str = "") -> Optional[dict]:
@@ -308,3 +401,85 @@ class DouyinService:
             "aweme_count": user.get("aweme_count", 0),
             "ip_location": user.get("ip_label", ""),
         }
+
+    def get_user_followers(self, uid: str, sec_uid: str, num: int = 50) -> Optional[dict]:
+        """获取用户粉丝列表"""
+        if not self.auth:
+            logger.error("未初始化认证信息")
+            return None
+        try:
+            logger.info(f"[粉丝列表] 开始获取: uid={uid}, sec_uid={sec_uid}, num={num}")
+            result = DouyinAPI.get_some_user_follower_list(self.auth, uid, sec_uid, num)
+            if result:
+                return {
+                    "followers": result,
+                    "total": len(result),
+                    "has_more": len(result) >= num,
+                }
+        except Exception as e:
+            logger.error(f"获取粉丝列表失败: {e}")
+        return None
+
+    def get_user_followings(self, uid: str, sec_uid: str, num: int = 50) -> Optional[dict]:
+        """获取用户关注列表"""
+        if not self.auth:
+            logger.error("未初始化认证信息")
+            return None
+        try:
+            logger.info(f"[关注列表] 开始获取: uid={uid}, sec_uid={sec_uid}, num={num}")
+            result = DouyinAPI.get_some_user_following_list(self.auth, uid, sec_uid, num)
+            if result:
+                return {
+                    "followings": result,
+                    "total": len(result),
+                    "has_more": len(result) >= num,
+                }
+        except Exception as e:
+            logger.error(f"获取关注列表失败: {e}")
+        return None
+
+    def get_work_comments_full(self, work_id: str, cursor: int = 0, count: int = 20) -> Optional[dict]:
+        """获取作品评论（完整版，包含回复）"""
+        if not self.auth:
+            logger.error("未初始化认证信息")
+            return None
+        try:
+            logger.info(f"[评论采集] 开始获取: work_id={work_id}, cursor={cursor}, count={count}")
+            result = DouyinAPI.get_work_comments(self.auth, work_id, cursor, count)
+            if result:
+                comments = []
+                for c in result.get("comments", []):
+                    comment_data = self._parse_comment(c)
+                    reply_count = c.get("reply_comment_total", 0)
+                    comment_data["reply_count"] = reply_count
+                    comments.append(comment_data)
+                
+                return {
+                    "comments": comments,
+                    "has_more": result.get("has_more", False),
+                    "cursor": result.get("cursor", 0),
+                    "total": result.get("total", 0),
+                }
+        except Exception as e:
+            logger.error(f"获取评论失败: {e}")
+        return None
+
+    def get_comment_replies(self, work_id: str, comment_id: str, cursor: int = 0, count: int = 20) -> Optional[dict]:
+        """获取评论回复"""
+        if not self.auth:
+            logger.error("未初始化认证信息")
+            return None
+        try:
+            logger.info(f"[评论回复] 开始获取: work_id={work_id}, comment_id={comment_id}")
+            comment = {"aweme_id": work_id, "cid": comment_id}
+            result = DouyinAPI.get_work_inner_comment(self.auth, comment, str(cursor), str(count))
+            if result:
+                replies = [self._parse_comment(r) for r in result.get("comments", [])]
+                return {
+                    "replies": replies,
+                    "has_more": result.get("has_more", False),
+                    "cursor": result.get("cursor", 0),
+                }
+        except Exception as e:
+            logger.error(f"获取评论回复失败: {e}")
+        return None

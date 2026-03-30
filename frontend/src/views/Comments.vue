@@ -242,7 +242,7 @@ const stats = reactive({
 const loadWorkList = async () => {
   try {
     const res = await worksApi.list({ page_size: 100 })
-    if (res.code === 0) {
+    if (res.code === 200 || res.code === 0) {
       workList.value = res.data.items
     }
   } catch (error) {
@@ -266,11 +266,10 @@ const loadComments = async () => {
       page_size: pageSize.value
     })
 
-    if (res.code === 0) {
+    if (res.code === 200 || res.code === 0) {
       commentList.value = res.data.items
       total.value = res.data.total
 
-      // 更新统计
       stats.total = res.data.total
       stats.totalLikes = commentList.value.reduce((sum, c) => sum + (c.digg_count || 0), 0)
       stats.totalReplies = commentList.value.reduce((sum, c) => sum + (c.reply_count || 0), 0)
@@ -290,7 +289,7 @@ const handleCollect = async () => {
   collecting.value = true
   try {
     const res = await commentsApi.collect(selectedWork.value, 200)
-    if (res.code === 0) {
+    if (res.code === 200 || res.code === 0) {
       ElMessage.success('评论采集任务已创建')
     } else {
       ElMessage.error(res.message || '采集失败')
@@ -314,7 +313,7 @@ const showReplies = async (comment) => {
       page_size: 50
     })
 
-    if (res.code === 0) {
+    if (res.code === 200 || res.code === 0) {
       repliesList.value = res.data.items
     }
   } catch (error) {

@@ -43,17 +43,29 @@
           <div class="nav-indicator"></div>
         </router-link>
 
+<!--        <router-link to="/followers" class="nav-item" :class="{ active: activeMenu === '/followers' }" @click="closeMobileMenu">-->
+<!--          <el-icon><UserFilled /></el-icon>-->
+<!--          <span v-show="!sidebarCollapsed || isMobile">粉丝关注</span>-->
+<!--          <div class="nav-indicator"></div>-->
+<!--        </router-link>-->
+
+        <router-link to="/comments" class="nav-item" :class="{ active: activeMenu === '/comments' }" @click="closeMobileMenu">
+          <el-icon><ChatDotRound /></el-icon>
+          <span v-show="!sidebarCollapsed || isMobile">作品评论</span>
+          <div class="nav-indicator"></div>
+        </router-link>
+
         <router-link to="/search" class="nav-item" :class="{ active: activeMenu === '/search' }" @click="closeMobileMenu">
           <el-icon><Search /></el-icon>
           <span v-show="!sidebarCollapsed || isMobile">搜索采集</span>
           <div class="nav-indicator"></div>
         </router-link>
 
-        <router-link to="/live" class="nav-item" :class="{ active: activeMenu === '/live' }" @click="closeMobileMenu">
-          <el-icon><VideoCamera /></el-icon>
-          <span v-show="!sidebarCollapsed || isMobile">直播监控</span>
-          <div class="nav-indicator"></div>
-        </router-link>
+<!--        <router-link to="/live" class="nav-item" :class="{ active: activeMenu === '/live' }" @click="closeMobileMenu">-->
+<!--          <el-icon><VideoCamera /></el-icon>-->
+<!--          <span v-show="!sidebarCollapsed || isMobile">直播监控</span>-->
+<!--          <div class="nav-indicator"></div>-->
+<!--        </router-link>-->
 
         <div class="nav-divider" v-show="!sidebarCollapsed || isMobile"></div>
 
@@ -149,6 +161,8 @@ const currentPageTitle = computed(() => {
   const titles = {
     '/works': '作品管理',
     '/users': '用户管理',
+    '/followers': '粉丝关注',
+    '/comments': '作品评论',
     '/search': '搜索采集',
     '/live': '直播监控',
     '/tasks': '任务列表',

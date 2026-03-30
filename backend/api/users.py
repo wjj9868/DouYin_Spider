@@ -356,3 +356,211 @@ async def collect_user_by_sec_uid(
     collector.start_task(task.id, "user_by_url", {"sec_uid": sec_uid})
 
     return ApiResponse(data={"task_id": task.id, "sec_uid": sec_uid}, message="用户采集任务已创建")
+
+
+class FollowerListResponse(BaseModel):
+    items: list[dict]
+    total: int
+    has_more: bool
+    page: int
+    page_size: int
+
+
+class FollowerUser(BaseModel):
+    uid: str
+    sec_uid: Optional[str] = None
+    nickname: Optional[str] = None
+    avatar: Optional[str] = None
+    signature: Optional[str] = None
+    follower_count: int = 0
+    following_count: int = 0
+    aweme_count: int = 0
+    is_following: bool = False
+
+
+@router.get("/{sec_uid}/followers", summary="获取用户粉丝列表")
+async def get_user_followers(
+    sec_uid: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=50),
+    db: Session = Depends(get_db)
+) -> ApiResponse[FollowerListResponse]:
+    """获取用户粉丝列表（实时从抖音获取）"""
+    from backend.services.douyin import DouyinService
+    from backend.config import settings
+
+    user = db.query(User).filter(User.sec_uid == sec_uid).first()
+    if not user:
+        return ApiResponse(code=404, message="用户不存在，请先采集用户信息")
+
+    try:
+        service = DouyinService(settings.cookie_str)
+        result = service.get_user_followers(
+            user.uid, 
+            sec_uid, 
+            num=page_size * page
+        )
+        
+        if not result:
+            return ApiResponse(data=FollowerListResponse(
+                items=[], total=0, has_more=False, page=page, page_size=page_size
+            ))
+
+        followers = result.get("followers", [])
+        total = result.get("total", len(followers))
+        has_more = result.get("has_more", False)
+        
+        offset = (page - 1) * page_size
+        paged_followers = followers[offset:offset + page_size]
+
+        items = []
+        for f in paged_followers:
+            items.append({
+                "uid": f.get("uid", ""),
+                "sec_uid": f.get("sec_uid", ""),
+                "nickname": f.get("nickname", ""),
+                "avatar": f.get("avatar_thumb", {}).get("url_list", [""])[0] if f.get("avatar_thumb") else "",
+                "signature": f.get("signature", ""),
+                "follower_count": f.get("follower_count", 0),
+                "following_count": f.get("following_count", 0),
+                "aweme_count": f.get("aweme_count", 0),
+                "is_following": f.get("is_following", False),
+            })
+
+        return ApiResponse(data=FollowerListResponse(
+            items=items, total=total, has_more=has_more, page=page, page_size=page_size
+        ))
+    except Exception as e:
+        return ApiResponse(code=500, message=f"获取粉丝列表失败: {str(e)}")
+
+
+@router.get("/{sec_uid}/followings", summary="获取用户关注列表")
+async def get_user_followings(
+    sec_uid: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=50),
+    db: Session = Depends(get_db)
+) -> ApiResponse[FollowerListResponse]:
+    """获取用户关注列表（实时从抖音获取）"""
+    from backend.services.douyin import DouyinService
+    from backend.config import settings
+
+    user = db.query(User).filter(User.sec_uid == sec_uid).first()
+    if not user:
+        return ApiResponse(code=404, message="用户不存在，请先采集用户信息")
+
+    try:
+        service = DouyinService(settings.cookie_str)
+        result = service.get_user_followings(
+            user.uid,
+            sec_uid,
+            num=page_size * page
+        )
+
+        if not result:
+            return ApiResponse(data=FollowerListResponse(
+                items=[], total=0, has_more=False, page=page, page_size=page_size
+            ))
+
+        followings = result.get("followings", [])
+        total = result.get("total", len(followings))
+        has_more = result.get("has_more", False)
+
+        offset = (page - 1) * page_size
+        paged_followings = followings[offset:offset + page_size]
+
+        items = []
+        for f in paged_followings:
+            items.append({
+                "uid": f.get("uid", ""),
+                "sec_uid": f.get("sec_uid", ""),
+                "nickname": f.get("nickname", ""),
+                "avatar": f.get("avatar_thumb", {}).get("url_list", [""])[0] if f.get("avatar_thumb") else "",
+                "signature": f.get("signature", ""),
+                "follower_count": f.get("follower_count", 0),
+                "following_count": f.get("following_count", 0),
+                "aweme_count": f.get("aweme_count", 0),
+                "is_following": True,
+            })
+
+        return ApiResponse(data=FollowerListResponse(
+            items=items, total=total, has_more=has_more, page=page, page_size=page_size
+        ))
+    except Exception as e:
+        return ApiResponse(code=500, message=f"获取关注列表失败: {str(e)}")
+
+
+@router.post("/{sec_uid}/collect-followers", summary="采集用户粉丝")
+async def collect_user_followers(
+    sec_uid: str,
+    max_count: int = Body(100, embed=True),
+    db: Session = Depends(get_db)
+) -> ApiResponse[dict]:
+    """采集用户粉丝列表到数据库"""
+    from backend.models import Task
+    from backend.services.collector import get_collector
+    import json
+
+    user = db.query(User).filter(User.sec_uid == sec_uid).first()
+    if not user:
+        return ApiResponse(code=404, message="用户不存在")
+
+    task = Task(
+        task_type="collect_followers",
+        task_params=json.dumps({
+            "uid": user.uid,
+            "sec_uid": sec_uid,
+            "max_count": max_count
+        }),
+        status="pending"
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    collector = get_collector()
+    collector.start_task(task.id, "collect_followers", {
+        "uid": user.uid,
+        "sec_uid": sec_uid,
+        "max_count": max_count
+    })
+
+    return ApiResponse(data={"task_id": task.id}, message="粉丝采集任务已创建")
+
+
+@router.post("/{sec_uid}/collect-followings", summary="采集用户关注")
+async def collect_user_followings(
+    sec_uid: str,
+    max_count: int = Body(100, embed=True),
+    db: Session = Depends(get_db)
+) -> ApiResponse[dict]:
+    """采集用户关注列表到数据库"""
+    from backend.models import Task
+    from backend.services.collector import get_collector
+    import json
+
+    user = db.query(User).filter(User.sec_uid == sec_uid).first()
+    if not user:
+        return ApiResponse(code=404, message="用户不存在")
+
+    task = Task(
+        task_type="collect_followings",
+        task_params=json.dumps({
+            "uid": user.uid,
+            "sec_uid": sec_uid,
+            "max_count": max_count
+        }),
+        status="pending"
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+
+    collector = get_collector()
+    collector.start_task(task.id, "collect_followings", {
+        "uid": user.uid,
+        "sec_uid": sec_uid,
+        "max_count": max_count
+    })
+
+    return ApiResponse(data={"task_id": task.id}, message="关注列表采集任务已创建")

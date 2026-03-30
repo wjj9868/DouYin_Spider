@@ -118,15 +118,31 @@ class DouyinAPI:
         """
         获取作品信息.
         :param auth: DouyinAuth object.
-        :param url: 作品URL.
+        :param url: 作品URL或作品ID.
         :return: JSON.
         """
         api = f"/aweme/v1/web/aweme/detail/"
-        if 'video' in url:
-            aweme_id = url.split("/")[-1].split("?")[0]
-        else:
-            aweme_id = re.findall(r'modal_id=(\d+)', url)[0]
+        
+        if url.isdigit() or (url.startswith('7') and len(url) >= 19):
+            aweme_id = url
             url = f'https://www.douyin.com/video/{aweme_id}'
+        elif 'video' in url:
+            aweme_id = url.split("/")[-1].split("?")[0]
+        elif 'modal_id' in url:
+            match = re.findall(r'modal_id=(\d+)', url)
+            if match:
+                aweme_id = match[0]
+                url = f'https://www.douyin.com/video/{aweme_id}'
+            else:
+                logger.error(f"[获取作品] 无法解析作品ID: {url}")
+                return {}
+        else:
+            aweme_id = url.split("/")[-1].split("?")[0]
+            if not aweme_id.isdigit():
+                logger.error(f"[获取作品] 无效的作品URL或ID: {url}")
+                return {}
+            url = f'https://www.douyin.com/video/{aweme_id}'
+        
         headers = HeaderBuilder().build(HeaderType.GET)
         headers.set_referer(url)
         params = Params()
@@ -1456,15 +1472,40 @@ class DouyinAPI:
         max_time = "0"
         count = "20"
         follower_list = []
-        while True:
+        max_retry = 3
+        retry_count = 0
+        
+        while len(follower_list) < num and retry_count < max_retry:
             res_json = DouyinAPI.get_user_follower_list(auth, user_id, sec_id, max_time, count)
-            followers = res_json["followers"]
-            follower_list.extend(followers)
-            if res_json["has_more"] != 1 or len(follower_list) >= num:
+            
+            if not res_json:
+                logger.warning(f"[粉丝列表] API返回空响应")
+                retry_count += 1
+                continue
+            
+            if res_json.get("status_code") == 8:
+                logger.error(f"[粉丝列表] 需要登录或Cookie失效")
                 break
-            max_time = res_json["min_time"]
+            
+            followers = res_json.get("followers", [])
+            if not followers:
+                logger.info(f"[粉丝列表] 无更多数据")
+                break
+            
+            follower_list.extend(followers)
+            
+            has_more = res_json.get("has_more", 0)
+            if has_more != 1:
+                logger.info(f"[粉丝列表] 已获取全部数据: has_more={has_more}")
+                break
+            
+            max_time = res_json.get("min_time", max_time)
+            retry_count = 0
+        
         if len(follower_list) > num:
             follower_list = follower_list[:num]
+        
+        logger.info(f"[粉丝列表] 获取完成: 目标{num}条, 实际{len(follower_list)}条")
         return follower_list
 
     @staticmethod
@@ -1540,15 +1581,40 @@ class DouyinAPI:
         max_time = "0"
         count = "20"
         following_list = []
-        while True:
+        max_retry = 3
+        retry_count = 0
+        
+        while len(following_list) < num and retry_count < max_retry:
             res_json = DouyinAPI.get_user_following_list(auth, user_id, sec_id, max_time, count)
-            followings = res_json["followings"]
-            following_list.extend(followings)
-            if res_json["has_more"] != 1 or len(following_list) >= num:
+            
+            if not res_json:
+                logger.warning(f"[关注列表] API返回空响应")
+                retry_count += 1
+                continue
+            
+            if res_json.get("status_code") == 8:
+                logger.error(f"[关注列表] 需要登录或Cookie失效")
                 break
-            max_time = res_json["min_time"]
+            
+            followings = res_json.get("followings", [])
+            if not followings:
+                logger.info(f"[关注列表] 无更多数据")
+                break
+            
+            following_list.extend(followings)
+            
+            has_more = res_json.get("has_more", 0)
+            if has_more != 1:
+                logger.info(f"[关注列表] 已获取全部数据: has_more={has_more}")
+                break
+            
+            max_time = res_json.get("min_time", max_time)
+            retry_count = 0
+        
         if len(following_list) > num:
             following_list = following_list[:num]
+        
+        logger.info(f"[关注列表] 获取完成: 目标{num}条, 实际{len(following_list)}条")
         return following_list
 
     @staticmethod

@@ -1,7 +1,11 @@
 import gzip
+import sys
+import os
 import threading
 import time
 from urllib.parse import urlencode
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from websocket import WebSocketApp
 
